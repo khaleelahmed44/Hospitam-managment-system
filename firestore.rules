@@ -1,0 +1,109 @@
+rules_version = '2';
+service cloud.firestore {
+  match /databases/{database}/documents {
+    // 0. Default Deny
+    match /{document=**} {
+      allow read, write: if false;
+    }
+
+    // --- Helpers ---
+    function isSignedIn() { return request.auth != null; }
+    function isOwner(userId) { return isSignedIn() && request.auth.uid == userId; }
+    function isAdmin() { 
+      return isSignedIn() && (
+        (exists(/databases/$(database)/documents/profiles/$(request.auth.uid)) && get(/databases/$(database)/documents/profiles/$(request.auth.uid)).data.role == 'admin') ||
+        request.auth.token.email == 'rajarkhaleel@gmail.com'
+      );
+    }
+    function isValidId(id) { return id is string && id.size() <= 128 && id.matches('^[a-zA-Z0-9_\\-]+$'); }
+    function incoming() { return request.resource.data; }
+    function existing() { return resource.data; }
+
+    // --- Validation Blueprints ---
+    function isValidProfile(data) {
+      return data.keys().hasAll(['fullName', 'email', 'role']) &&
+             data.fullName is string && data.fullName.size() <= 100 &&
+             data.email is string && data.email.size() <= 100 &&
+             data.role in ['patient', 'doctor', 'admin'] &&
+             (!('phone' in data) || (data.phone is string && data.phone.size() <= 20));
+    }
+
+    function isValidDoctor(data) {
+      return data.keys().hasAll(['name', 'specialty', 'departmentId']) &&
+             data.name is string && data.name.size() <= 100 &&
+             data.specialty is string && data.specialty.size() <= 100 &&
+             data.departmentId is string && data.departmentId.size() <= 100 &&
+             (!('bio' in data) || (data.bio is string && data.bio.size() <= 1000)) &&
+             (!('imageUrl' in data) || (data.imageUrl is string && data.imageUrl.size() <= 500)) &&
+             (!('rate' in data) || (data.rate is number));
+    }
+
+    function isValidAppointment(data) {
+      return data.keys().hasAll(['doctorId', 'patientId', 'appointmentDate', 'appointmentTime', 'status']) &&
+             data.doctorId is string && data.doctorId.size() <= 100 &&
+             data.patientId is string && data.patientId.size() <= 100 &&
+             data.appointmentDate is string && data.appointmentDate.size() <= 20 &&
+             data.appointmentTime is string && data.appointmentTime.size() <= 20 &&
+             data.status in ['pending', 'confirmed', 'cancelled'] &&
+             (!('notes' in data) || (data.notes is string && data.notes.size() <= 1000));
+    }
+
+    function isValidDepartment(data) {
+      return data.keys().hasAll(['name']) &&
+             data.name is string && data.name.size() <= 100;
+    }
+
+    // --- Collections ---
+
+    // Profiles: Users can only read/write their own profile. Admin can do anything.
+    match /profiles/{userId} {
+      allow get: if isOwner(userId) || isAdmin();
+      allow list: if isAdmin();
+      allow create: if isSignedIn() && isOwner(userId) && isValidProfile(incoming()) && incoming().role != 'admin'; 
+      allow update: if (isOwner(userId) || isAdmin()) && isValidProfile(incoming()) && 
+                    (incoming().role == existing().role || isAdmin()); // Prevents self-escalation
+    }
+
+    // Doctors: Publicly readable, writable by admin.
+    match /doctors/{doctorId} {
+      allow read: if true;
+      allow write: if isAdmin() && isValidDoctor(incoming());
+    }
+
+    // Departments: Publicly readable, writable by admin.
+    match /departments/{deptId} {
+      allow read: if true;
+      allow write: if isAdmin() && isValidDepartment(incoming());
+    }
+
+    // Appointments: Relational access.
+    // Patients see their own. Doctors see theirs.
+    match /appointments/{appId} {
+      allow get: if isSignedIn() && (isOwner(existing().patientId) || isOwner(existing().doctorId) || isAdmin());
+      allow list: if isSignedIn() && (
+        (resource.data.patientId == request.auth.uid) ||
+        (resource.data.doctorId == request.auth.uid) ||
+        isAdmin()
+      );
+      
+      allow create: if isSignedIn() && isOwner(incoming().patientId) && 
+                    isValidAppointment(incoming()) && 
+                    incoming().status == 'pending' &&
+                    exists(/databases/$(database)/documents/doctors/$(incoming().doctorId));
+                    
+      allow update: if isSignedIn() && (
+        // Patient can cancel their own pending appointment
+        (isOwner(existing().patientId) && existing().status == 'pending' && 
+         incoming().diff(existing()).affectedKeys().hasOnly(['status', 'updatedAt']) &&
+         incoming().status == 'cancelled') ||
+        // Doctor can confirm/cancel their own appointment
+        (isOwner(existing().doctorId) && 
+         incoming().diff(existing()).affectedKeys().hasOnly(['status', 'updatedAt']) &&
+         incoming().status in ['confirmed', 'cancelled']) ||
+        isAdmin()
+      );
+      
+      allow delete: if isAdmin();
+    }
+  }
+}

@@ -1,0 +1,85 @@
+{
+  "entities": {
+    "Profile": {
+      "title": "User Profile",
+      "description": "Stores user account information for patients and staff.",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string" },
+        "fullName": { "type": "string" },
+        "email": { "type": "string", "format": "email" },
+        "phone": { "type": "string" },
+        "role": { "type": "string", "enum": ["patient", "doctor", "admin"] },
+        "createdAt": { "type": "string", "format": "date-time" }
+      },
+      "required": ["fullName", "email", "role"]
+    },
+    "Doctor": {
+      "title": "Doctor",
+      "description": "Details about a healthcare professional.",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string" },
+        "name": { "type": "string" },
+        "specialty": { "type": "string" },
+        "departmentId": { "type": "string" },
+        "bio": { "type": "string" },
+        "imageUrl": { "type": "string" },
+        "rate": { "type": "number" },
+        "availability": {
+          "type": "object",
+          "description": "Weekly availability schedule"
+        },
+        "rating": { "type": "number" }
+      },
+      "required": ["name", "specialty", "departmentId"]
+    },
+    "Appointment": {
+      "title": "Appointment",
+      "description": "A scheduled medical consultation.",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string" },
+        "doctorId": { "type": "string" },
+        "patientId": { "type": "string" },
+        "appointmentDate": { "type": "string", "format": "date" },
+        "appointmentTime": { "type": "string" },
+        "status": { "type": "string", "enum": ["pending", "confirmed", "cancelled"] },
+        "notes": { "type": "string" },
+        "createdAt": { "type": "string", "format": "date-time" },
+        "updatedAt": { "type": "string", "format": "date-time" }
+      },
+      "required": ["doctorId", "patientId", "appointmentDate", "appointmentTime", "status"]
+    },
+    "Department": {
+      "title": "Department",
+      "description": "A hospital division (e.g., Cardiology).",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string" },
+        "name": { "type": "string" },
+        "description": { "type": "string" },
+        "icon": { "type": "string" }
+      },
+      "required": ["name"]
+    }
+  },
+  "firestore": {
+    "profiles": {
+      "schema": "Profile",
+      "description": "Patient and staff profiles indexed by Auth UID."
+    },
+    "doctors": {
+      "schema": "Doctor",
+      "description": "Public directory of doctors."
+    },
+    "appointments": {
+      "schema": "Appointment",
+      "description": "Private appointments between patients and doctors."
+    },
+    "departments": {
+      "schema": "Department",
+      "description": "Hospital departments directory."
+    }
+  }
+}
